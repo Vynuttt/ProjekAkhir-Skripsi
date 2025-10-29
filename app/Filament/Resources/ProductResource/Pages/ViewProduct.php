@@ -32,7 +32,7 @@ class ViewProduct extends ViewRecord
 
                     Notification::make()
                         ->title('💰 Prediksi Harga Barang')
-                        ->body("Harga jual berikutnya diperkirakan sebesar Rp " . number_format($predicted, 0, ',', '.'))
+                        ->body("Harga beli berikutnya diperkirakan sebesar Rp " . number_format($predicted, 0, ',', '.'))
                         ->success()
                         ->send();
                 }),
