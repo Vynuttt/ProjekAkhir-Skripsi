@@ -24,8 +24,8 @@ class SalesReturnResource extends \Filament\Resources\Resource
     {
         return $form->schema([
             Forms\Components\Select::make('sale_id')
-                ->label('Transaksi Penjualan')
-                ->relationship('sale', 'id')
+                ->label('No. Transaksi Penjualan')
+                ->relationship('sale', 'invoice_number')
                 ->searchable()
                 ->required(),
 
@@ -57,8 +57,8 @@ class SalesReturnResource extends \Filament\Resources\Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('sale.id')
-                    ->label('ID Penjualan')
+                Tables\Columns\TextColumn::make('sale.invoice_number')
+                    ->label('No Penjualan')
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('product.name')
