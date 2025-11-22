@@ -19,7 +19,7 @@
 
             <div class="overflow-x-auto">
                 <table class="w-full text-sm border-collapse">
-                    <thead class="bg-gray-700 text-white">
+                    <thead class="bg-gray-700 text-gray-200">
                         <tr>
                             <th class="p-2 border">Kode</th>
                             <th class="p-2 border">Produk</th>

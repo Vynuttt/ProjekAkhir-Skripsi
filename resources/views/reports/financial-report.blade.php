@@ -10,70 +10,104 @@
         th, td { border: 1px solid #999; padding: 8px; }
         th { background: #f4f4f4; text-align: left; }
         td { text-align: right; }
-        .no-border td { border: none; }
         .header { text-align: center; margin-bottom: 10px; }
-        .header h2 { margin: 0; }
-        .footer { margin-top: 40px; text-align: right; width: 80%; }
     </style>
 </head>
+
 <body>
-    @php
-        use Carbon\Carbon;
 
-        $filterLabels = [
-            'daily'   => 'Harian',
-            'weekly'  => 'Mingguan',
-            'monthly' => 'Bulanan',
-            'yearly'  => 'Tahunan',
-            'custom'  => 'Custom',
-        ];
+@php
+    use Carbon\Carbon;
 
-        if ($filter === 'monthly') {
-            $periode = Carbon::parse($queryStart)->translatedFormat('F Y');
-        } elseif ($filter === 'yearly') {
-            $periode = Carbon::parse($queryStart)->translatedFormat('Y');
-        } elseif ($filter === 'weekly') {
-            $periode = Carbon::parse($queryStart)->format('d M Y') . ' - ' . Carbon::parse($queryEnd)->format('d M Y');
-        } elseif ($filter === 'custom') {
-            $periode = Carbon::parse($start)->format('d M Y') . ' - ' . Carbon::parse($end)->format('d M Y');
-        } else {
-            $periode = Carbon::parse($queryStart)->translatedFormat('d M Y');
-        }
+    $filterLabels = [
+        'daily'   => 'Harian',
+        'weekly'  => 'Mingguan',
+        'monthly' => 'Bulanan',
+        'yearly'  => 'Tahunan',
+        'custom'  => 'Custom',
+    ];
 
-        $profit = $totalSales - $totalPurchases;
-    @endphp
+    if ($filter === 'monthly') {
+        $periode = Carbon::parse($queryStart)->translatedFormat('F Y');
+    } elseif ($filter === 'weekly') {
+        $periode = Carbon::parse($queryStart)->format('d M Y') . ' - ' . Carbon::parse($queryEnd)->format('d M Y');
+    } elseif ($filter === 'custom') {
+        $periode = Carbon::parse($start)->format('d M Y') . ' - ' . Carbon::parse($end)->format('d M Y');
+    } else {
+        $periode = Carbon::parse($queryStart)->translatedFormat('d M Y');
+    }
 
-    {{-- Header Toko --}}
-    <div class="header">
-        <h2>TOKO SPAREPART JAYA MUNCUL</h2>
-        <p>Jl. KH. Abul Hasan No.9, Ps. Pagi, Samarinda</p>
-        <p><strong>Laporan Keuangan ({{ $filterLabels[$filter] ?? ucfirst($filter) }})</strong></p>
-        <p>Periode: {{ $periode }}</p>
-        <hr style="border: 0; border-top: 1px solid #999; margin-top: 8px;">
-    </div>
+    // ============================
+    // Retur Pembelian (info saja)
+    // ============================
+    $purchaseReturns = \App\Models\PurchaseReturn::whereBetween('return_date', [$queryStart, $queryEnd])->get();
+    $totalPurchaseReturn = $purchaseReturns->sum('total');
 
-    {{-- Tabel Ringkasan --}}
-    <table>
-        <tr>
-            <th style="width: 50%">Total Penjualan</th>
-            <td>Rp {{ number_format($totalSales, 0, ',', '.') }}</td>
-        </tr>
-        <tr>
-            <th>Total Pembelian</th>
-            <td>Rp {{ number_format($totalPurchases, 0, ',', '.') }}</td>
-        </tr>
-        <tr>
-            <th>Laba / Rugi</th>
-            <td style="color: {{ $profit >= 0 ? 'green' : 'red' }}">
-                Rp {{ number_format($profit, 0, ',', '.') }}
-            </td>
-        </tr>
-    </table>
+    // ============================
+    // Retur Penjualan
+    //  - refund & exchange sama2
+    //    mengurangi penjualan
+    // ============================
+    $salesReturns = \App\Models\SalesReturn::whereBetween('return_date', [$queryStart, $queryEnd])->get();
 
-    {{-- Waktu Cetak --}}
-    <p style="text-align: center; font-size: 10px; margin-top: 15px;">
-        Dicetak pada: {{ now()->translatedFormat('d F Y, H:i') }}
-    </p>
+    // Semua jenis retur penjualan dihitung
+    $totalSalesReturn = $salesReturns->sum(function ($ret) {
+        $qty   = (float) ($ret->quantity ?? 0);
+        $price = (float) ($ret->unit_price ?? 0);
+        return $qty * $price;
+    });
+
+    // ============================
+    // Laba / Rugi
+    // ============================
+    // $totalSales  dan $totalPurchases
+    // sudah dikirim dari controller / page.
+    // Retur pembelian TIDAK mengurangi pembelian,
+    // hanya ditampilkan.
+    $profit = $totalSales - $totalSalesReturn - $totalPurchases;
+@endphp
+
+
+<div class="header">
+    <h2>TOKO SPAREPART JAYA MUNCUL</h2>
+    <p>Jl. KH. Abul Hasan No.9, Ps. Pagi, Samarinda</p>
+    <p><strong>Laporan Keuangan ({{ $filterLabels[$filter] ?? ucfirst($filter) }})</strong></p>
+    <p>Periode: {{ $periode }}</p>
+    <hr style="border:0; border-top:1px solid #999; margin-top:8px;">
+</div>
+
+<table>
+    <tr>
+        <th>Total Penjualan</th>
+        <td>Rp {{ number_format($totalSales,0,',','.') }}</td>
+    </tr>
+
+    <tr>
+        <th>Total Retur Penjualan</th>
+        <td>Rp {{ number_format($totalSalesReturn,0,',','.') }}</td>
+    </tr>
+
+    <tr>
+        <th>Total Pembelian</th>
+        <td>Rp {{ number_format($totalPurchases,0,',','.') }}</td>
+    </tr>
+
+    <tr>
+        <th>Total Retur Pembelian</th>
+        <td>Rp {{ number_format($totalPurchaseReturn,0,',','.') }}</td>
+    </tr>
+
+    <tr>
+        <th><strong>Laba / Rugi</strong></th>
+        <td style="color: {{ $profit >= 0 ? 'green' : 'red' }};">
+            Rp {{ number_format($profit,0,',','.') }}
+        </td>
+    </tr>
+</table>
+
+<p style="text-align: center; font-size: 10px; margin-top: 15px;">
+    Dicetak pada: {{ now()->translatedFormat('d F Y, H:i') }}
+</p>
 
 </body>
 </html>

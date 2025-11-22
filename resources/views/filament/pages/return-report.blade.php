@@ -1,5 +1,6 @@
 <x-filament-panels::page>
     <div class="space-y-6">
+
         {{-- Form Filter --}}
         <form method="GET" class="flex flex-wrap gap-4 items-end">
             <div>
@@ -39,9 +40,12 @@
             extract($data);
         @endphp
 
-        {{-- Retur Pembelian --}}
+        {{-- ========================= --}}
+        {{-- RETUR PEMBELIAN --}}
+        {{-- ========================= --}}
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6">
             <h3 class="text-lg font-bold mb-4 text-blue-400">Retur Pembelian (Barang ke Supplier)</h3>
+
             <table class="w-full text-sm border-collapse">
                 <thead class="bg-gray-700 textgrey-300">
                     <tr>
@@ -55,7 +59,9 @@
                     </tr>
                 </thead>
                 <tbody>
+
                     @php $totalPurchaseReturn = 0; @endphp
+
                     @forelse ($purchaseReturns as $item)
                         @php $totalPurchaseReturn += $item->total; @endphp
                         <tr class="border-b border-gray-600">
@@ -70,18 +76,23 @@
                     @empty
                         <tr><td colspan="7" class="text-center text-gray-400 py-3">Tidak ada data retur pembelian</td></tr>
                     @endforelse
+
                     <tr class="bg-gray-700 text-white font-bold">
                         <td colspan="5" class="p-2 text-right">Total Retur Pembelian</td>
                         <td class="p-2 text-right">Rp {{ number_format($totalPurchaseReturn, 0, ',', '.') }}</td>
                         <td></td>
                     </tr>
+
                 </tbody>
             </table>
         </div>
 
-        {{-- Retur Penjualan --}}
+        {{-- ========================= --}}
+        {{-- RETUR PENJUALAN --}}
+        {{-- ========================= --}}
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6">
             <h3 class="text-lg font-bold mb-4 text-green-400">Retur Penjualan (Dari Pelanggan)</h3>
+
             <table class="w-full text-sm border-collapse">
                 <thead class="bg-gray-700 text-grey-300">
                     <tr>
@@ -91,13 +102,23 @@
                         <th class="p-2 border">Qty</th>
                         <th class="p-2 border">Harga Satuan</th>
                         <th class="p-2 border">Total</th>
+                        <th class="p-2 border">Jenis Retur</th>
                         <th class="p-2 border">Alasan</th>
                     </tr>
                 </thead>
+
                 <tbody>
+
                     @php $totalSaleReturn = 0; @endphp
+
                     @forelse ($saleReturns as $item)
-                        @php $totalSaleReturn += $item->total; @endphp
+                        {{-- Hanya retur REFUND yang dihitung --}}
+                        @php
+                            if ($item->return_type === 'refund') {
+                                $totalSaleReturn += $item->total;
+                            }
+                        @endphp
+
                         <tr class="border-b border-gray-600">
                             <td class="p-2 border">{{ \Carbon\Carbon::parse($item->return_date)->format('d M Y') }}</td>
                             <td class="p-2 border">{{ $item->sale->invoice_number }}</td>
@@ -105,32 +126,40 @@
                             <td class="p-2 border">{{ $item->quantity }}</td>
                             <td class="p-2 border text-right">Rp {{ number_format($item->unit_price, 0, ',', '.') }}</td>
                             <td class="p-2 border text-right">Rp {{ number_format($item->total, 0, ',', '.') }}</td>
+
+                            <td class="p-2 border">
+                                {{ $item->return_type === 'exchange' ? 'Tukar Barang' : 'Refund' }}
+                            </td>
+
                             <td class="p-2 border text-left">{{ $item->reason ?? '-' }}</td>
                         </tr>
+
                     @empty
-                        <tr><td colspan="7" class="text-center text-gray-400 py-3">Tidak ada data retur penjualan</td></tr>
+                        <tr><td colspan="8" class="text-center text-gray-400 py-3">Tidak ada data retur penjualan</td></tr>
                     @endforelse
+
                     <tr class="bg-gray-700 text-white font-bold">
-                        <td colspan="5" class="p-2 text-right">Total Retur Penjualan</td>
+                        <td colspan="6" class="p-2 text-right">Total Retur Penjualan (Refund)</td>
                         <td class="p-2 text-right">Rp {{ number_format($totalSaleReturn, 0, ',', '.') }}</td>
                         <td></td>
                     </tr>
+
                 </tbody>
             </table>
+
         </div>
     </div>
 
-        <style>
-/* Warna ikon kalender selalu hitam di semua mode */
-.date-input::-webkit-calendar-picker-indicator {
-    filter: brightness(0) saturate(100%) invert(0%) sepia(0%) saturate(100%) hue-rotate(0deg);
-    opacity: 0.9;
-    cursor: pointer;
-}
+    {{-- Style kalender --}}
+    <style>
+        .date-input::-webkit-calendar-picker-indicator {
+            filter: brightness(0);
+            opacity: 0.9;
+            cursor: pointer;
+        }
+        .date-input:hover::-webkit-calendar-picker-indicator {
+            filter: brightness(0.2);
+        }
+    </style>
 
-/* Hover biar sedikit lebih gelap */
-.date-input:hover::-webkit-calendar-picker-indicator {
-    filter: brightness(0) saturate(100%) invert(0%) sepia(0%) saturate(200%) hue-rotate(0deg) brightness(80%);
-}
-</style>
 </x-filament-panels::page>

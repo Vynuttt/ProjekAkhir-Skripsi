@@ -21,9 +21,9 @@ class DemandPredictionService
             ->pluck('quantity');
 
         if ($sales->count() === 0) {
-            return null; // belum ada data
+            return null; 
         }
 
-        return (int) round($sales->avg()); // Simple Moving Average
+        return (int) round($sales->avg());
     }
 }

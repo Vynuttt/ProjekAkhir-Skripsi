@@ -6,9 +6,9 @@ use App\Models\PurchaseItem;
 
 class PricePredictionService
 {
+    // Ambil harga dari tabel purchase_items terbaru, dengan default periode 6 data terakhir
     public static function predictPrice(int $productId, int $period = 6): ?float
     {
-        // Ambil harga dari tabel purchase_items
         $prices = PurchaseItem::where('product_id', $productId)
             ->orderByDesc('created_at')
             ->take($period)

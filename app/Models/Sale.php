@@ -1,8 +1,9 @@
 <?php
+
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 
 class Sale extends Model
@@ -10,10 +11,10 @@ class Sale extends Model
     use HasFactory;
 
     protected $fillable = [
-        'invoice_number',    // Nomor transaksi 
-        'user_id',           
-        'sale_date',         
-        'total_amount'       
+        'invoice_number',
+        'user_id',
+        'sale_date',
+        'total_amount',
     ];
 
     // Relasi
@@ -39,28 +40,38 @@ class Sale extends Model
         $this->saveQuietly();
     }
 
-    // Boot method untuk model
     protected static function booted()
     {
         static::creating(function ($sale) {
-            // Isi otomatis user_id dari user login
+            // user
             if (Auth::check() && empty($sale->user_id)) {
                 $sale->user_id = Auth::id();
             }
 
-            // Auto generate nomor invoice jika belum diisi
+            // invoice
             if (empty($sale->invoice_number)) {
                 $latest = static::whereDate('created_at', today())->max('invoice_number');
                 $lastNumber = $latest ? (int) substr($latest, -4) : 0;
                 $nextNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
 
-                // Format: PJ-YYYYMMDD-0001 (PJ = Penjualan)
                 $sale->invoice_number = 'PJ-' . now()->format('Ymd') . '-' . $nextNumber;
             }
 
-            // Set tanggal transaksi otomatis jika belum ada
+            // tanggal
             if (empty($sale->sale_date)) {
                 $sale->sale_date = now();
+            }
+        });
+
+        // Kalau SATU transaksi penjualan DIHAPUS,
+        // stok semua item HARUS kembali.
+        // Ini yang memperbaiki kasus: stok 28 → jual 1 (27) → hapus penjualan → stok kembali 28.
+        static::deleting(function ($sale) {
+            foreach ($sale->items as $item) {
+                $product = $item->product;
+                if ($product) {
+                    $product->increment('stock', $item->quantity);
+                }
             }
         });
     }

@@ -4,8 +4,9 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\SalesReturnResource\Pages;
 use App\Models\SalesReturn;
+use App\Models\SaleItem;
+use App\Models\Product;
 use Filament\Forms;
-use Filament\Forms\Components\Actions;
 use Filament\Tables;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
@@ -23,22 +24,99 @@ class SalesReturnResource extends \Filament\Resources\Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+
             Forms\Components\Select::make('sale_id')
                 ->label('No. Transaksi Penjualan')
                 ->relationship('sale', 'invoice_number')
                 ->searchable()
-                ->required(),
+                ->required()
+                ->reactive(),
 
             Forms\Components\Select::make('product_id')
                 ->label('Produk')
-                ->relationship('product', 'name')
                 ->searchable()
-                ->required(),
+                ->required()
+                ->reactive()
+                ->options(function ($get) {
+                    if (!$get('sale_id')) return [];
+
+                    return \App\Models\SaleItem::where('sale_id', $get('sale_id'))
+                        ->with('product')
+                        ->get()
+                        ->pluck('product.name', 'product_id');
+                })
+                ->afterStateUpdated(function ($state, callable $set) {
+                    $lastSalePrice = \App\Models\SaleItem::where('product_id', $state)
+                        ->orderByDesc('created_at')
+                        ->value('price');
+
+                    $set('unit_price', $lastSalePrice ?? 0);
+                    $set('quantity', null);
+                    $set('total', 0);
+                }),
+
+            Forms\Components\TextInput::make('unit_price')
+                ->label('Harga Jual (Rp)')
+                ->numeric()
+                ->disabled()
+                ->dehydrated(true),
 
             Forms\Components\TextInput::make('quantity')
                 ->label('Jumlah Retur')
                 ->numeric()
                 ->minValue(1)
+                ->required()
+                ->reactive()
+                ->rule(function ($get) {
+                    return function (string $attribute, $value, $fail) use ($get) {
+                
+                        if (!$get('product_id') || !$get('sale_id')) return;
+                
+                        $saleId = $get('sale_id');
+                        $productId = $get('product_id');
+                
+                        // Qty yang pernah dijual
+                        $soldQty = \App\Models\SaleItem::where('sale_id', $saleId)
+                            ->where('product_id', $productId)
+                            ->sum('quantity');
+                
+                        // Qty retur yang sudah pernah dilakukan
+                        $returnedQty = \App\Models\SalesReturn::where('sale_id', $saleId)
+                            ->where('product_id', $productId)
+                            ->sum('quantity');
+                
+                        // Batas retur yang masih tersisa
+                        $remaining = $soldQty - $returnedQty;
+                
+                        if ($remaining <= 0) {
+                            $fail("Produk ini sudah pernah diretur seluruhnya sebelumnya dan tidak bisa diretur lagi.");
+                            return;
+                        }
+                
+                        if ($value > $remaining) {
+                            $fail("Maksimal retur tersisa hanya $remaining unit.");
+                        }
+                    };
+                })
+
+                ->afterStateUpdated(function ($state, callable $set, callable $get) {
+                    $qty = (float) ($get('quantity') ?? 0);
+                    $price = (float) ($get('unit_price') ?? 0);
+                    $set('total', $qty * $price);
+                }),
+
+            Forms\Components\TextInput::make('total')
+                ->label('Total Retur (Rp)')
+                ->numeric()
+                ->disabled()
+                ->dehydrated(true),
+
+            Forms\Components\Select::make('return_type')
+                ->label('Jenis Retur')
+                ->options([
+                    'refund' => 'Refund (Uang Kembali)',
+                    'exchange' => 'Tukar Barang'
+                ])
                 ->required(),
 
             Forms\Components\Textarea::make('reason')
@@ -68,6 +146,24 @@ class SalesReturnResource extends \Filament\Resources\Resource
 
                 Tables\Columns\TextColumn::make('quantity')
                     ->label('Jumlah Retur'),
+
+                Tables\Columns\TextColumn::make('unit_price')
+                    ->label('Harga')
+                    ->money('idr', true),
+
+                Tables\Columns\TextColumn::make('total')
+                    ->label('Total Retur')
+                    ->money('idr', true),
+
+                Tables\Columns\BadgeColumn::make('return_type')
+                    ->label('Jenis Retur')
+                    ->colors([
+                        'warning' => 'refund',
+                        'primary' => 'exchange',
+                    ])
+                    ->formatStateUsing(fn($state) =>
+                        $state === 'refund' ? 'Refund' : 'Tukar Barang'
+                    ),
 
                 Tables\Columns\TextColumn::make('reason')
                     ->label('Alasan')
@@ -100,7 +196,7 @@ class SalesReturnResource extends \Filament\Resources\Resource
         ];
     }
 
-    //role-based access
+    // Role Based
     public static function canViewAny(): bool
     {
         return in_array(auth()->user()?->role, ['owner', 'admin', 'kasir']);

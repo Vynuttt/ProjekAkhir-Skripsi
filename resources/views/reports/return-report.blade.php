@@ -12,16 +12,19 @@
         th { background-color: #f2f2f2; }
         .section-title { margin-top: 25px; font-size: 13px; font-weight: bold; text-align: left; }
         .total-row { font-weight: bold; background-color: #f9f9f9; }
-        .footer { margin-top: 40px; text-align: right; width: 80%; }
     </style>
 </head>
+
 <body>
+
     <h2>TOKO SPAREPART JAYA MUNCUL</h2>
     <p>Jl. KH. Abul Hasan No.9, Ps. Pagi, Samarinda</p>
     <h3>LAPORAN RETUR PEMBELIAN & PENJUALAN</h3>
-    <p>Dicetak pada: {{ now()->setTimezone('Asia/Makassar')->translatedFormat('d F Y, H:i') }}</p>
-    <hr style="border: 0; border-top: 1px solid #999; margin: 5px 0;">
 
+    <p>Dicetak pada: {{ now()->setTimezone('Asia/Makassar')->translatedFormat('d F Y, H:i') }}</p>
+    <hr style="border:0; border-top:1px solid #999; margin:5px 0;">
+
+    {{-- Periode --}}
     <p>
         <strong>Periode:</strong>
         @if($filter === 'custom' && $start && $end)
@@ -37,8 +40,11 @@
         @endif
     </p>
 
-    {{-- Retur Pembelian --}}
+    {{-- ========================================= --}}
+    {{-- RETUR PEMBELIAN --}}
+    {{-- ========================================= --}}
     <div class="section-title">Retur Pembelian (Barang ke Supplier)</div>
+
     <table>
         <thead>
             <tr>
@@ -51,8 +57,10 @@
                 <th>Alasan</th>
             </tr>
         </thead>
+
         <tbody>
             @php $totalPurchaseReturn = 0; @endphp
+
             @forelse ($purchaseReturns as $item)
                 @php $totalPurchaseReturn += $item->total; @endphp
                 <tr>
@@ -67,6 +75,7 @@
             @empty
                 <tr><td colspan="7">Tidak ada data retur pembelian</td></tr>
             @endforelse
+
             <tr class="total-row">
                 <td colspan="5" style="text-align:right;">Total Retur Pembelian:</td>
                 <td style="text-align:right;">Rp {{ number_format($totalPurchaseReturn, 0, ',', '.') }}</td>
@@ -75,8 +84,11 @@
         </tbody>
     </table>
 
-    {{-- Retur Penjualan --}}
+    {{-- ========================================= --}}
+    {{-- RETUR PENJUALAN --}}
+    {{-- ========================================= --}}
     <div class="section-title">Retur Penjualan (Dari Pelanggan)</div>
+
     <table>
         <thead>
             <tr>
@@ -86,30 +98,45 @@
                 <th>Qty</th>
                 <th>Harga Satuan</th>
                 <th>Total Retur</th>
+                <th>Jenis</th>
                 <th>Alasan</th>
             </tr>
         </thead>
+
         <tbody>
-            @php $totalSaleReturn = 0; @endphp
+            @php $totalSalesRefund = 0; @endphp
+            
             @forelse ($saleReturns as $item)
-                @php $totalSaleReturn += $item->total; @endphp
+                @php
+                    // Semua retur (refund & exchange) dihitung sebagai nilai retur
+                    $totalSalesRefund += $item->total;
+                @endphp
+            
                 <tr>
                     <td>{{ \Carbon\Carbon::parse($item->return_date)->translatedFormat('d M Y') }}</td>
                     <td>{{ $item->sale->invoice_number }}</td>
                     <td style="text-align:left;">{{ $item->product->name }}</td>
                     <td>{{ number_format($item->quantity, 0, ',', '.') }}</td>
                     <td style="text-align:right;">Rp {{ number_format($item->unit_price, 0, ',', '.') }}</td>
-                    <td style="text-align:right;">Rp {{ number_format($item->total, 0, ',', '.') }}</td>
+            
+                    {{-- Tampilkan total retur, baik refund maupun exchange --}}
+                    <td style="text-align:right;">
+                        Rp {{ number_format($item->total, 0, ',', '.') }}
+                    </td>
+            
+                    <td>{{ $item->return_type === 'refund' ? 'Refund' : 'Exchange' }}</td>
                     <td style="text-align:left;">{{ $item->reason ?? '-' }}</td>
                 </tr>
             @empty
-                <tr><td colspan="7">Tidak ada data retur penjualan</td></tr>
+                <tr><td colspan="8">Tidak ada data retur penjualan</td></tr>
             @endforelse
+            
             <tr class="total-row">
                 <td colspan="5" style="text-align:right;">Total Retur Penjualan:</td>
-                <td style="text-align:right;">Rp {{ number_format($totalSaleReturn, 0, ',', '.') }}</td>
-                <td></td>
+                <td style="text-align:right;">Rp {{ number_format($totalSalesRefund, 0, ',', '.') }}</td>
+                <td colspan="2"></td>
             </tr>
+
         </tbody>
     </table>
 

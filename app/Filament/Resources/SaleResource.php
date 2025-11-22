@@ -3,10 +3,11 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\SaleResource\Pages;
-use App\Filament\Resources\SaleResource\RelationManagers;
 use App\Models\Sale;
+use App\Models\Product;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -24,20 +25,21 @@ class SaleResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+
             Forms\Components\Section::make('Informasi Transaksi')
                 ->schema([
+
                     Forms\Components\TextInput::make('invoice_number')
                         ->label('No. Transaksi')
-                        ->disabled()                    // tidak bisa diubah manual
-                        ->dehydrated(true)  // tetap dikirim ke model
+                        ->disabled()
+                        ->dehydrated(true)
                         ->default(function () {
                             $latest = Sale::whereDate('created_at', today())->max('invoice_number');
                             $lastNumber = $latest ? (int) substr($latest, -4) : 0;
                             $nextNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
                             return 'PJ-' . now()->format('Ymd') . '-' . $nextNumber;
                         })
-                        ->unique(Sale::class, 'invoice_number')
-                        ->hint('No transaksi generate otomatis'),
+                        ->unique(Sale::class, 'invoice_number'),
 
                     Forms\Components\DatePicker::make('sale_date')
                         ->label('Tanggal Keluar')
@@ -53,37 +55,86 @@ class SaleResource extends Resource
                     Forms\Components\HasManyRepeater::make('items')
                         ->relationship('items')
                         ->schema([
+
+                            // PRODUK
                             Forms\Components\Select::make('product_id')
                                 ->label('Produk')
                                 ->relationship('product', 'name')
                                 ->searchable()
-                                ->required(),
+                                ->required()
+                                ->reactive()
+                                ->afterStateUpdated(function ($state, callable $set) {
+                                    $product = Product::find($state);
 
+                                    if ($product) {
+                                        // Isi harga otomatis
+                                        $set('price', $product->sale_price);
+
+                                        // Stok habis → beri warning
+                                        if ($product->stock <= 0) {
+                                            Notification::make()
+                                                ->title('Stok produk habis!')
+                                                ->danger()
+                                                ->send();
+                                        }
+                                    }
+                                }),
+
+                            // JUMLAH
                             Forms\Components\TextInput::make('quantity')
                                 ->label('Jumlah')
                                 ->numeric()
                                 ->required()
-                                ->reactive(),
+                                ->reactive()
+                                ->rule(function ($get) {
+                                    return function ($attribute, $value, $fail) use ($get) {
+                                        $product = Product::find($get('product_id'));
 
+                                        if (!$product) return;
+
+                                        if ($value <= 0) {
+                                            $fail("Jumlah harus lebih dari 0.");
+                                        }
+
+                                        if ($value > $product->stock) {
+                                            $fail("Jumlah melebihi stok! Stok tersedia: {$product->stock}");
+                                        }
+                                    };
+                                })
+                                ->afterStateUpdated(fn ($state, callable $set, callable $get) =>
+                                    $set('subtotal', ($get('price') ?? 0) * ($state ?? 0))
+                                ),
+
+                            // HARGA
                             Forms\Components\TextInput::make('price')
-                                ->label('Harga')
+                                ->label('Harga Satuan')
                                 ->numeric()
-                                ->required()
-                                ->reactive(),
+                                ->disabled()
+                                ->dehydrated(true)
+                                ->required(),
 
+                            // SUBTOTAL
                             Forms\Components\TextInput::make('subtotal')
                                 ->label('Subtotal')
                                 ->disabled()
-                                ->dehydrated(false)
                                 ->reactive()
-                                ->afterStateHydrated(fn($state, $set, $get) =>
-                                    $set('subtotal', ($get('quantity') ?? 0) * ($get('price') ?? 0))
-                                )
-                                ->afterStateUpdated(fn($state, $set, $get) =>
+                                ->afterStateHydrated(fn ($state, $set, $get) =>
                                     $set('subtotal', ($get('quantity') ?? 0) * ($get('price') ?? 0))
                                 ),
+
                         ])
-                        ->columns(4),
+                        ->columns(4)
+                        ->afterStateUpdated(function ($state, callable $get, callable $set) {
+
+                            $items = $get('items');
+                            $total = 0;
+
+                            foreach ($items as $item) {
+                                $total += ($item['subtotal'] ?? 0);
+                            }
+
+                            $set('total_amount', $total);
+                        }),
                 ]),
 
             Forms\Components\Section::make('Total')
@@ -95,6 +146,14 @@ class SaleResource extends Resource
                         ->default(0),
                 ]),
         ]);
+    }
+
+    // Jangan update stok di sini → stok diatur oleh SaleItem
+    public static function afterSave($record, $form): void
+    {
+        // Fix total "yang lebih akurat" setelah save + setelah SaleItem diproses
+        $record->total_amount = $record->items()->sum('subtotal');
+        $record->saveQuietly();
     }
 
     public static function table(Table $table): Table
@@ -110,17 +169,7 @@ class SaleResource extends Resource
             Tables\Actions\ViewAction::make(),
             Tables\Actions\EditAction::make(),
             Tables\Actions\DeleteAction::make(),
-        ])
-        ->bulkActions([
-            Tables\Actions\BulkActionGroup::make([
-                Tables\Actions\DeleteBulkAction::make(),
-            ]),
         ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [];
     }
 
     public static function getPages(): array
@@ -132,13 +181,6 @@ class SaleResource extends Resource
         ];
     }
 
-    public static function afterSave($record, $form): void
-    {
-        $record->total_amount = $record->items()->sum('subtotal');
-        $record->save();
-    }
-
-    // Role-based akses
     public static function canViewAny(): bool
     {
         return in_array(auth()->user()?->role, ['owner', 'admin', 'kasir']);
@@ -156,6 +198,6 @@ class SaleResource extends Resource
 
     public static function canDelete($record): bool
     {
-        return in_array(auth()->user()?->role, ['owner', 'kasir']);
+        return in_array(auth()->user()?->role, ['owner']);
     }
 }

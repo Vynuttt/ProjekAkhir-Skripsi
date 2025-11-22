@@ -3,7 +3,6 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PurchaseResource\Pages;
-use App\Filament\Resources\PurchaseResource\RelationManagers;
 use App\Models\Purchase;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -28,17 +27,15 @@ class PurchaseResource extends Resource
                 ->schema([
                     Forms\Components\TextInput::make('invoice_number')
                         ->label('No. Transaksi')
-                        ->disabled()                    // tidak bisa diedit manual
-                        ->dehydrated(true)  // tetap dikirim ke model agar tersimpan
+                        ->disabled()
+                        ->dehydrated(true)
                         ->default(function () {
-                            // generate preview nomor sebelum disimpan
                             $latest = Purchase::whereDate('created_at', today())->max('invoice_number');
                             $lastNumber = $latest ? (int) substr($latest, -4) : 0;
                             $nextNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
                             return 'PB-' . now()->format('Ymd') . '-' . $nextNumber;
-                            })
-                            ->unique(Purchase::class, 'invoice_number')
-                            ->hint('No Transaksi generate otomatis'),
+                        })
+                        ->unique(Purchase::class, 'invoice_number'),
 
                     Forms\Components\DatePicker::make('purchase_date')
                         ->label('Tanggal Masuk')
@@ -67,12 +64,14 @@ class PurchaseResource extends Resource
                             Forms\Components\TextInput::make('quantity')
                                 ->label('Jumlah')
                                 ->numeric()
+                                ->minValue(1)
                                 ->required()
                                 ->reactive(),
 
                             Forms\Components\TextInput::make('price')
-                                ->label('Harga')
+                                ->label('Harga Satuan')
                                 ->numeric()
+                                ->minValue(1)
                                 ->required()
                                 ->reactive(),
 
@@ -123,11 +122,6 @@ class PurchaseResource extends Resource
         ]);
     }
 
-    public static function getRelations(): array
-    {
-        return [];
-    }
-
     public static function getPages(): array
     {
         return [
@@ -139,16 +133,17 @@ class PurchaseResource extends Resource
 
     public static function afterSave($record, $form): void
     {
+        // FIX TOTAL → hanya hitung total, tidak update stok, tidak update harga
         $record->total_amount = $record->items()->sum('subtotal');
         $record->save();
     }
 
     // Role-based akses
-
     public static function canCreate(): bool
-{
-        return in_array(auth()->user()?->role, ['owner','admin','kasir']);
-}
+    {
+        return in_array(auth()->user()?->role, ['owner', 'admin', 'kasir']);
+    }
+
     public static function canViewAny(): bool
     {
         return in_array(auth()->user()?->role, ['owner', 'admin']);

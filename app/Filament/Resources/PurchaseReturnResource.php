@@ -35,20 +35,70 @@ class PurchaseReturnResource extends Resource
 
                 Forms\Components\Select::make('product_id')
                     ->label('Produk')
-                    ->relationship('product', 'name')
+                    ->options(function (callable $get) {
+                        $purchaseId = $get('purchase_id'); // ambil transaksi pembelian yang dipilih
+                        if (!$purchaseId) return [];
+                
+                        return \App\Models\PurchaseItem::where('purchase_id', $purchaseId)
+                            ->with('product')
+                            ->get()
+                            ->pluck('product.name', 'product_id');
+                    })
+                    ->searchable()
                     ->required()
-                    ->searchable(),
+                    ->reactive()
+                    ->afterStateUpdated(function ($state, callable $set) {
+                        // Ambil harga pembelian terakhir
+                        $latestPrice = \App\Models\PurchaseItem::where('product_id', $state)
+                            ->orderByDesc('created_at')
+                            ->value('price');
+                
+                        if ($latestPrice) {
+                            $set('unit_price', $latestPrice);
+                        } else {
+                            $set('unit_price', null);
+                        }
+                    }),
+
 
                 Forms\Components\TextInput::make('quantity')
                     ->label('Jumlah Retur')
                     ->numeric()
                     ->minValue(1)
-                    ->required(),
+                    ->required()
+                    ->reactive()
+                    ->rule(function ($get, $record) {
+                        return function (string $attribute, $value, $fail) use ($get, $record) {
+                
+                            if (!$get('product_id') || !$get('purchase_id')) return;
+                
+                            $productId = $get('product_id');
+                            $purchaseId = $get('purchase_id');
+                
+                            // Total qty pembelian produk ini
+                            $purchasedQty = \App\Models\PurchaseItem::where('purchase_id', $purchaseId)
+                                ->where('product_id', $productId)
+                                ->sum('quantity');
+                
+                            // Total qty retur yang sudah dilakukan sebelumnya (kecuali retur ini kalau sedang edit)
+                            $returnedQty = \App\Models\PurchaseReturn::where('purchase_id', $purchaseId)
+                                ->where('product_id', $productId)
+                                ->when($record, fn($q) => $q->where('id', '!=', $record->id))
+                                ->sum('quantity');
+                
+                            // Total gabungan retur lama + retur baru
+                            $totalAfter = $returnedQty + $value;
+                
+                            if ($totalAfter > $purchasedQty) {
+                                $fail("Total retur melebihi jumlah pembelian. Sudah diretur $returnedQty unit dari total $purchasedQty unit.");
+                            }
+                        };
+                    }),
 
                 Forms\Components\TextInput::make('unit_price')
                     ->label('Harga Satuan')
-                    ->numeric()
-                    ->required(),
+                    ->disabled() 
+                    ->dehydrated(true),
 
                 Forms\Components\Textarea::make('reason')
                     ->label('Alasan Retur')

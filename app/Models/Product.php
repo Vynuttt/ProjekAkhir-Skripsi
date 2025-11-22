@@ -20,18 +20,21 @@ class Product extends Model
         'purchase_price',
         'sale_price',
         'is_active',
-        // field tambahan untuk EOQ:
-        'ordering_cost',    // biaya pemesanan per order
-        'holding_cost',     // biaya penyimpanan per unit per tahun
-        'annual_demand',    // permintaan tahunan (estimasi / realisasi)
-        'reorder_point',    // titik pemesanan ulang
-        'safety_stock',     // stok pengaman
-        'lead_time',       // lead time dalam hari
+
+        // EOQ 
+        'ordering_cost',
+        'holding_cost',
+        'annual_demand',
+        'reorder_point',
+        'safety_stock',
+        'lead_time',
+        'eoq',
     ];
 
-    /* ==============================
-     *  RELATIONSHIP
-     * ============================== */
+    // =========================
+    // RELASI
+    // =========================
+
     public function brand()
     {
         return $this->belongsTo(Brand::class);
@@ -54,9 +57,8 @@ class Product extends Model
 
     public function salesReturns()
     {
-    return $this->hasMany(SalesReturn::class);
+        return $this->hasMany(SalesReturn::class);
     }
-
 
     public function purchaseItems()
     {
@@ -68,12 +70,23 @@ class Product extends Model
         return $this->hasMany(SaleItem::class);
     }
 
-    // perhitungan EOQ
+    // =========================
+    // PERHITUNGAN EOQ / ROP
+    // =========================
+
+    public function calculateHoldingCost(float $percentage = 0.2): float
+    {
+        if ($this->purchase_price > 0) {
+            return round($this->purchase_price * $percentage, 2);
+        }
+        return 0;
+    }
+
     public function calculateEOQ(): int
     {
-        $D = (float) ($this->annual_demand ?? 0);  // permintaan tahunan
-        $S = (float) ($this->ordering_cost ?? 0);  // biaya pemesanan
-        $H = (float) ($this->holding_cost ?? 0);   // biaya penyimpanan per unit per tahun
+        $D = (float) ($this->annual_demand ?? 0);
+        $S = (float) ($this->ordering_cost ?? 0);
+        $H = (float) ($this->holding_cost ?? $this->calculateHoldingCost());
 
         if ($D <= 0 || $S <= 0 || $H <= 0) {
             return 0;
@@ -82,31 +95,70 @@ class Product extends Model
         return (int) ceil(sqrt((2 * $D * $S) / $H));
     }
 
-    /**
-     * Hitung Reorder Point otomatis jika ada lead time & demand harian
-     */
     public function calculateReorderPoint(): int
     {
-        $dailyDemand = $this->annual_demand > 0 ? ceil($this->annual_demand / 365) : 0;
+        $dailyDemand = $this->annual_demand > 0
+            ? ceil($this->annual_demand / 365)
+            : 0;
+
         $leadTime = $this->lead_time ?? 0;
+
         $rop = ($dailyDemand * $leadTime) + ($this->safety_stock ?? 0);
 
         return max($rop, 0);
     }
 
+    // cycle time 
 
-    /* ==============================
-     *  ACCESSOR
-     * ============================== */
-    public function getEoqAttribute(): int
+    public function calculateCycleTime(): ?int
     {
-        return $this->calculateEOQ();
+        $eoq = $this->calculateEOQ();
+        $dailyDemand = $this->annual_demand > 0 ? $this->annual_demand / 365 : 0;
+
+        if ($eoq <= 0 || $dailyDemand <= 0) {
+            return null;
+        }
+
+        return (int) ceil($eoq / $dailyDemand);
+    }
+
+    public function getCycleTimeAttribute()
+    {
+        return $this->calculateCycleTime();
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function ($product) {
+
+            if ($product->isDirty('purchase_price') && $product->purchase_price > 0) {
+
+                $markup = 20; 
+                $product->sale_price = round(
+                    $product->purchase_price * (1 + ($markup / 100)),
+                    0
+                );
+
+                if (is_null($product->holding_cost) || $product->holding_cost == 0) {
+                    $product->holding_cost = round($product->purchase_price * 0.20, 0);
+                }
+            }
+
+            $eoq = $product->calculateEOQ();
+            $product->eoq = $eoq > 0 ? $eoq : null;
+
+            $rop = $product->calculateReorderPoint();
+            $product->reorder_point = $rop > 0 ? $rop : null;
+        });
+    }
+
+    public function getEoqAttribute($value): int
+    {
+        return $value ?? $this->calculateEOQ();
     }
 
     public function getReorderPointAttribute($value): int
     {
-        return !is_null($value)
-            ? (int) $value
-            : $this->calculateReorderPoint();
+        return $value ?? $this->calculateReorderPoint();
     }
 }

@@ -91,17 +91,21 @@ class UserResource extends Resource
             ])
             ->filters([])
             ->actions([
-                // ✏️ Edit bisa dilakukan oleh Owner & Admin
+                // ✏️ Edit hanya untuk Owner & Admin
                 Tables\Actions\EditAction::make()
-                    ->visible(fn () => auth()->check() && in_array(auth()->user()->role, ['owner', 'admin'])),
+                    ->visible(fn ($record) => auth()->check()
+                        && in_array(auth()->user()->role, ['owner', 'admin'])
+                        && !($record->role === 'owner' && auth()->user()->role === 'admin')),
 
-                // 🗑️ Hapus bisa dilakukan oleh Owner & Admin
+                // 🗑️ Hapus hanya untuk Owner & Admin, kecuali admin tidak bisa hapus Owner
                 Tables\Actions\DeleteAction::make()
-                    ->visible(fn () => auth()->check() && in_array(auth()->user()->role, ['owner', 'admin'])),
+                    ->visible(fn ($record) => auth()->check()
+                        && in_array(auth()->user()->role, ['owner', 'admin'])
+                        && !($record->role === 'owner' && auth()->user()->role === 'admin')),
             ])
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make()
-                    ->visible(fn () => auth()->check() && in_array(auth()->user()->role, ['owner', 'admin'])),
+                    ->visible(fn () => auth()->check() && auth()->user()->role === 'owner'),
             ]);
     }
 
@@ -118,11 +122,21 @@ class UserResource extends Resource
 
     public static function canEdit($record): bool
     {
+        // 🔒 Admin tidak boleh mengedit Owner
+        if (auth()->check() && auth()->user()->role === 'admin' && $record->role === 'owner') {
+            return false;
+        }
+
         return auth()->check() && in_array(auth()->user()->role, ['owner', 'admin']);
     }
 
     public static function canDelete($record): bool
     {
+        // 🔒 Admin tidak boleh menghapus Owner
+        if (auth()->check() && auth()->user()->role === 'admin' && $record->role === 'owner') {
+            return false;
+        }
+
         return auth()->check() && in_array(auth()->user()->role, ['owner', 'admin']);
     }
 

@@ -23,11 +23,13 @@ class SupplierResource extends Resource
                 Forms\Components\TextInput::make('name')
                     ->label('Nama Supplier')
                     ->required()
+                    ->unique(ignoreRecord: true)
                     ->maxLength(255),
 
                 Forms\Components\TextInput::make('email')
                     ->label('Email')
                     ->email()
+                    ->unique(ignoreRecord: true)
                     ->maxLength(255),
 
                 Forms\Components\TextInput::make('phone')

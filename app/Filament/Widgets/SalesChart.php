@@ -13,12 +13,12 @@ class SalesChart extends ChartWidget
 
     protected function getData(): array
     {
-        $purchases = Purchase::selectRaw('MONTH(created_at) as month, SUM(total_amount) as total')
+        $purchases = Purchase::selectRaw('MONTH(purchase_date) as month, SUM(total_amount) as total')
             ->groupBy('month')
             ->pluck('total', 'month')
             ->toArray();
 
-        $sales = Sale::selectRaw('MONTH(created_at) as month, SUM(total_amount) as total')
+        $sales = Sale::selectRaw('MONTH(sale_date) as month, SUM(total_amount) as total')
             ->groupBy('month')
             ->pluck('total', 'month')
             ->toArray();

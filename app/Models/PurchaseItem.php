@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class PurchaseItem extends Model
 {
@@ -27,41 +28,121 @@ class PurchaseItem extends Model
         return $this->belongsTo(Product::class);
     }
 
-    // 🔹 Event untuk update subtotal, stok produk, dan total purchase
     protected static function booted()
     {
+        // ========== BEFORE SAVING ==========
         static::saving(function ($item) {
-            // hitung subtotal otomatis
-            $item->subtotal = $item->quantity * $item->price;
-        });
 
-        static::created(function ($item) {
-            // tambah stok produk saat pembelian
-            $item->product->increment('stock', $item->quantity);
+            // Hitung subtotal aman
+            $qty   = max(0, (float) $item->quantity);
+            $price = max(0, (float) $item->price);
 
-            // update total purchase
-            $item->purchase->updateTotal();
-        });
+            $item->subtotal = $qty * $price;
 
-        static::updated(function ($item) {
-            if ($item->isDirty('quantity')) {
-                $oldQty = $item->getOriginal('quantity');
-                $diff = $item->quantity - $oldQty;
-
-                // update stok sesuai selisih qty
-                $item->product->increment('stock', $diff);
+            if ($qty <= 0) {
+                throw new \Exception("Jumlah pembelian tidak boleh 0 atau negatif.");
             }
 
-            // update total purchase
-            $item->purchase->updateTotal();
+            if ($price <= 0) {
+                throw new \Exception("Harga beli harus lebih besar dari 0.");
+            }
         });
 
-        static::deleted(function ($item) {
-            // rollback stok kalau item dihapus
-            $item->product->decrement('stock', $item->quantity);
+        // ========== CREATED ==========
+        static::created(function ($item) {
 
-            // update total purchase
-            $item->purchase->updateTotal();
+            DB::transaction(function () use ($item) {
+
+                $product = $item->product;
+
+                if ($product) {
+
+                    // Tambahkan stok
+                    $product->increment('stock', $item->quantity);
+
+                    // VALIDASI — stok tidak boleh negatif
+                    if ($product->stock < 0) {
+                        throw new \Exception("Stok menjadi negatif setelah pembelian. Transaksi dibatalkan.");
+                    }
+
+                    // Update harga beli, jual, holding cost
+                    $product->purchase_price = $item->price;
+
+                    // Markup tetap aman 20%
+                    $product->sale_price = round($item->price * 1.20, 0);
+
+                    // Holding cost 20%
+                    $product->holding_cost = round($item->price * 0.20, 0);
+
+                    $product->save();
+                }
+
+                // Update total pembelian
+                $item->purchase->updateTotal();
+            });
+        });
+
+        // ========== UPDATED ==========
+        static::updated(function ($item) {
+
+            DB::transaction(function () use ($item) {
+
+                $product = $item->product;
+
+                if ($product) {
+
+                    // Update stok jika qty berubah
+                    if ($item->isDirty('quantity')) {
+
+                        $oldQty = $item->getOriginal('quantity');
+                        $newQty = $item->quantity;
+                        $diff   = $newQty - $oldQty;
+
+                        if ($diff > 0) {
+                            $product->increment('stock', $diff);
+                        } else {
+                            $product->decrement('stock', abs($diff));
+                        }
+
+                        if ($product->stock < 0) {
+                            throw new \Exception("Perubahan jumlah membuat stok negatif. Transaksi dibatalkan.");
+                        }
+                    }
+
+                    // Update harga beli & jual jika harga berubah
+                    if ($item->isDirty('price')) {
+                        $product->purchase_price = $item->price;
+                        $product->sale_price = round($item->price * 1.20, 0);
+                        $product->holding_cost = round($item->price * 0.20, 0);
+                        $product->save();
+                    }
+                }
+
+                // Update total pembelian
+                $item->purchase->updateTotal();
+            });
+        });
+
+        // ========== DELETED ==========
+        static::deleted(function ($item) {
+
+            DB::transaction(function () use ($item) {
+
+                $product = $item->product;
+
+                if ($product) {
+
+                    // Kurangi stok
+                    $product->decrement('stock', $item->quantity);
+
+                    if ($product->stock < 0) {
+                        throw new \Exception("Stok menjadi negatif setelah penghapusan. Transaksi dibatalkan.");
+                    }
+                }
+
+                // Update total pembelian
+                $item->purchase->updateTotal();
+            });
         });
     }
 }

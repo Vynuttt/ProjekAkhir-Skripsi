@@ -27,40 +27,123 @@ class SaleItem extends Model
         return $this->belongsTo(Product::class);
     }
 
-    // 🔹 Event untuk update subtotal, stok produk, dan total sale
     protected static function booted()
     {
+        /*
+        |--------------------------------------------------------------------------
+        | BEFORE SAVE → Hitung subtotal
+        |--------------------------------------------------------------------------
+        */
         static::saving(function ($item) {
-            // hitung subtotal otomatis
-            $item->subtotal = $item->quantity * $item->price;
+            $qty   = max(0, (int) $item->quantity);
+            $price = max(0, (int) $item->price);
+
+            $item->subtotal = $qty * $price;
+
+            if ($qty <= 0) {
+                throw new \Exception("Jumlah penjualan harus lebih dari 0.");
+            }
         });
 
+        /*
+        |--------------------------------------------------------------------------
+        | BEFORE CREATE → Validasi stok cukup
+        |--------------------------------------------------------------------------
+        */
+        static::creating(function ($item) {
+            $product = $item->product;
+
+            if ($product) {
+                if ($product->stock < $item->quantity) {
+                    throw new \Exception("Stok {$product->name} tidak cukup untuk penjualan.");
+                }
+            }
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | AFTER CREATE → Kurangi stok
+        |--------------------------------------------------------------------------
+        */
         static::created(function ($item) {
-            // kurangi stok produk saat penjualan
-            $item->product->decrement('stock', $item->quantity);
+            $product = $item->product;
 
-            // update total sale
-            $item->sale->updateTotal();
-        });
+            if ($product) {
+                $product->decrement('stock', $item->quantity);
 
-        static::updated(function ($item) {
-            if ($item->isDirty('quantity')) {
-                $oldQty = $item->getOriginal('quantity');
-                $diff = $item->quantity - $oldQty;
-
-                // update stok sesuai selisih qty (positif → tambah, negatif → kurang)
-                $item->product->decrement('stock', $diff);
+                if ($product->stock < 0) {
+                    throw new \Exception("Stok {$product->name} menjadi negatif! Transaksi dibatalkan.");
+                }
             }
 
-            // update total sale
             $item->sale->updateTotal();
         });
 
-        static::deleted(function ($item) {
-            // rollback stok kalau item penjualan dihapus
-            $item->product->increment('stock', $item->quantity);
+        /*
+        |--------------------------------------------------------------------------
+        | BEFORE UPDATE → Cek apakah stok cukup jika quantity berubah
+        |--------------------------------------------------------------------------
+        */
+        static::updating(function ($item) {
+            $product = $item->product;
 
-            // update total sale
+            if ($product && $item->isDirty('quantity')) {
+                $oldQty = (int) $item->getOriginal('quantity');
+                $newQty = (int) $item->quantity;
+                $diff   = $newQty - $oldQty;
+
+                if ($diff > 0 && $product->stock < $diff) {
+                    throw new \Exception("Stok {$product->name} tidak cukup untuk perubahan jumlah.");
+                }
+            }
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | AFTER UPDATE → Sesuaikan stok
+        |--------------------------------------------------------------------------
+        */
+        static::updated(function ($item) {
+            $product = $item->product;
+
+            if ($product && $item->isDirty('quantity')) {
+
+                $oldQty = (int) $item->getOriginal('quantity');
+                $newQty = (int) $item->quantity;
+                $diff   = $newQty - $oldQty;
+
+                if ($diff > 0) {
+                    // tambah qty → stok berkurang
+                    $product->decrement('stock', $diff);
+                } else {
+                    // kurangi qty → stok kembali
+                    $product->increment('stock', abs($diff));
+                }
+
+                if ($product->stock < 0) {
+                    throw new \Exception("Stok {$product->name} menjadi negatif setelah update.");
+                }
+            }
+
+            $item->sale->updateTotal();
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | AFTER DELETE → Kembalikan stok
+        |--------------------------------------------------------------------------
+        */
+        static::deleted(function ($item) {
+            $product = $item->product;
+
+            if ($product) {
+                $product->increment('stock', $item->quantity);
+
+                if ($product->stock < 0) {
+                    throw new \Exception("Penghapusan membuat stok negatif. Tidak diperbolehkan.");
+                }
+            }
+
             $item->sale->updateTotal();
         });
     }
